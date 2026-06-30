@@ -26,6 +26,19 @@ def test_preserve_edge_and_manifest(dry_settings, workspace):
     assert "```mermaid" in (workspace / "PROVENANCE.md").read_text()
 
 
+def test_save_writes_dot_graph(dry_settings, workspace):
+    from dataerai_hls4ml.provenance import to_dot
+    run = _run(dry_settings, workspace)
+    ds = run.preserve_dataset([workspace / "X_train_val.npy"], title="ds")
+    m1 = run.preserve_keras_model(workspace / "model_1" / "KERAS_check_best_model.h5", title="m1")
+    run.trained_on(m1, ds)
+    man = run.save()
+    dot = to_dot(man)
+    assert dot.startswith("digraph provenance {")
+    assert "trained_on" in dot
+    assert (workspace / "provenance_graph.dot").exists()
+
+
 def test_environment_capture(dry_settings, workspace):
     run = _run(dry_settings, workspace)
     env = run.manifest()["environment"]

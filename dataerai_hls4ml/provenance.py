@@ -288,6 +288,7 @@ class ProvenanceRun:
         man = self.manifest()
         (self.base_dir / "provenance_manifest.json").write_text(json.dumps(man, indent=2))
         (self.base_dir / "PROVENANCE.md").write_text(_render_markdown(man))
+        (self.base_dir / "provenance_graph.dot").write_text(to_dot(man))
         self._save_state()
         return man
 
@@ -298,6 +299,40 @@ class ProvenanceRun:
     def __exit__(self, exc_type, exc, tb) -> None:
         # Don't seal the shared run on error; just persist what we have.
         self.save(close=exc_type is None)
+
+
+_KIND_STYLE = {
+    "dataset": ("#e8f0fe", "#5b8def"),
+    "model": ("#f3e8fd", "#954c9d"),
+    "hls_project": ("#e9f7ef", "#2e8b57"),
+    "array": ("#fff4e5", "#e67e22"),
+    "bitstream": ("#fde8e8", "#c0392b"),
+    "artifact": ("#f0f0f0", "#888888"),
+}
+
+
+def to_dot(man: dict) -> str:
+    """Render a lineage manifest as a Graphviz DOT graph (``dot -Tsvg`` to view)."""
+    out = [
+        "digraph provenance {",
+        f'  label="Dataerai lineage — {man["label"]}"; labelloc=t; fontname="Helvetica"; fontsize=14;',
+        "  rankdir=LR;",
+        '  node [shape=box style="rounded,filled" fontname="Helvetica" fontsize=10];',
+        '  edge [fontname="Helvetica" fontsize=9 color="#555555"];',
+    ]
+    ids = {a["asset_id"]: f"n{i}" for i, a in enumerate(man["artifacts"])}
+    for a in man["artifacts"]:
+        fill, border = _KIND_STYLE.get(a["kind"], ("#f5f5f5", "#999999"))
+        label = a["name"].replace('"', "'") + f"\\n({a['kind']})"
+        out.append(f'  {ids[a["asset_id"]]} [label="{label}" fillcolor="{fill}" color="{border}"];')
+    for e in man["edges"]:
+        s, d = ids.get(e["from"]), ids.get(e["to"])
+        if not s or not d:
+            continue
+        lbl = e["type"] + (f"\\n{e['step']}" if e.get("step") else "")
+        out.append(f'  {s} -> {d} [label="{lbl}"];')
+    out.append("}")
+    return "\n".join(out)
 
 
 def _render_markdown(man: dict) -> str:

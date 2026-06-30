@@ -12,6 +12,7 @@ model_5
 # Dataerai provenance runtime outputs (generated; the docs file is DATAERAI_PROVENANCE.md)
 .dataerai_run.json
 provenance_manifest.json
+provenance_graph.dot
 PROVENANCE.md
 *.executed.ipynb
 .pytest_cache
