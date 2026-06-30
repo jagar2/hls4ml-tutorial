@@ -1,5 +1,12 @@
 # hls4ml-tutorial: Tutorial notebooks for `hls4ml`
 
+> **📦 Dataerai fork — data preservation & provenance.** This fork instruments the
+> whole pipeline so every artifact (dataset → models → HLS projects → bitstream →
+> eval) is preserved as a versioned, citable [Dataerai](https://dataerai.com) asset
+> and linked into one lineage DAG. It's opt-in and a no-op if Dataerai isn't
+> configured. See **[DATAERAI_PROVENANCE.md](DATAERAI_PROVENANCE.md)** — or try it
+> offline with `python run_pipeline.py selftest --dry-run`.
+
 
 [![Jupyter Book Badge](https://jupyterbook.org/badge.svg)](https://fastmachinelearning.org/hls4ml-tutorial)
 ![deploy-book](https://github.com/fastmachinelearning/hls4ml-tutorial/actions/workflows/deploy.yml/badge.svg)

@@ -6,4 +6,13 @@ _build
 model_1
 model_2
 model_3
+model_5
 .DS_Store
+
+# Dataerai provenance runtime outputs (generated; the docs file is DATAERAI_PROVENANCE.md)
+.dataerai_run.json
+provenance_manifest.json
+PROVENANCE.md
+*.executed.ipynb
+.pytest_cache
+*.egg-info
