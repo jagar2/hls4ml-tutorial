@@ -124,9 +124,12 @@ def cmd_run(args) -> int:
             failures.append((stem, str(exc).splitlines()[-1][:160]))
             print(f"  ! {stem} did not finish: {failures[-1][1]}", file=sys.stderr)
 
-    # Roll up whatever the notebooks preserved into the manifest.
+    # Roll up whatever landed on disk — robust even if a notebook stopped early
+    # (e.g. at hls_model.build() without Vitis, after the model was already saved).
+    from . import pipeline
     from .provenance import get_run
     run = get_run("hls4ml-pipeline", base_dir=root)
+    pipeline.preserve_and_link(run, root)
     manifest = run.save()
     _summarize(manifest)
     if failures:

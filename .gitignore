@@ -17,3 +17,7 @@ PROVENANCE.md
 *.executed.ipynb
 .pytest_cache
 *.egg-info
+
+# Docker build context (arch-specific / proprietary; supply your own — see docker/README.md)
+docker/bin/
+docker/vendor/
