@@ -60,6 +60,14 @@ def test_owner_resolution():
     assert none.owner_type is None and none.owner_id is None
 
 
+def test_decode_keyring_secret():
+    import base64
+    plain = '{"access_token":"abc"}'
+    encoded = "go-keyring-base64:" + base64.b64encode(plain.encode()).decode()
+    assert config._decode_keyring_secret(encoded) == plain
+    assert config._decode_keyring_secret(plain) == plain  # non-prefixed passthrough
+
+
 def test_enabled_flag(monkeypatch):
     _clear_env(monkeypatch)
     assert config.enabled() is True

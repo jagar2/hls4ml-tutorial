@@ -19,6 +19,7 @@ dry-run* so a tutorial notebook never crashes just because Dataerai isn't set up
 """
 from __future__ import annotations
 
+import base64
 import json
 import os
 import shutil
@@ -52,6 +53,15 @@ def credentials_file() -> Path:
     return base / "dataerai" / "credentials"
 
 
+def _decode_keyring_secret(raw: str) -> str:
+    """The Go CLI stores creds via zalando/go-keyring, which base64-encodes values
+    that aren't plain ASCII and prefixes them with ``go-keyring-base64:``."""
+    prefix = "go-keyring-base64:"
+    if raw.startswith(prefix):
+        return base64.b64decode(raw[len(prefix):]).decode("utf-8")
+    return raw
+
+
 def read_credentials() -> dict:
     """Best-effort read of the ``dataerai`` CLI credentials (keychain first, then file)."""
     # 1) macOS Keychain — where the Go CLI stores creds by default.
@@ -63,8 +73,8 @@ def read_credentials() -> dict:
                 capture_output=True, text=True, timeout=15,
             )
             if out.returncode == 0 and out.stdout.strip():
-                return json.loads(out.stdout.strip())
-        except (json.JSONDecodeError, OSError, subprocess.SubprocessError):
+                return json.loads(_decode_keyring_secret(out.stdout.strip()))
+        except (json.JSONDecodeError, OSError, subprocess.SubprocessError, ValueError):
             pass
     # 2) Config-file fallback.
     try:
