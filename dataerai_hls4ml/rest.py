@@ -93,6 +93,23 @@ class RestClient:
     def get_asset(self, asset_id: str) -> dict:
         return self._request("GET", f"/api/assets/{asset_id}/")
 
+    # ── collections (one per notebook) ──────────────────────────────────────────
+    def find_collection(self, project_id: str, title: str) -> Optional[str]:
+        resp = self._request("GET", "/api/collections/",
+                             params={"owner_type": "project", "owner_id": project_id, "q": title})
+        items = resp.get("results", resp) if isinstance(resp, dict) else resp
+        for c in (items if isinstance(items, list) else []):
+            if c.get("title") == title:
+                return c.get("id")
+        return None
+
+    def create_collection(self, project_id: str, title: str) -> str:
+        body = {"title": title, "owner_type": "project", "owner_id": project_id}
+        return self._request("POST", "/api/collections/", json_body=body).get("id")
+
+    def get_or_create_collection(self, project_id: str, title: str) -> Optional[str]:
+        return self.find_collection(project_id, title) or self.create_collection(project_id, title)
+
     # ── Layer 2: asset relationships (UUID-based lineage graph) ──────────────────
     def create_relationship(self, from_id: str, to_id: str, rel_type: str, *,
                             qualifier_note: Optional[str] = None,

@@ -39,6 +39,30 @@ def test_save_writes_dot_graph(dry_settings, workspace):
     assert (workspace / "provenance_graph.dot").exists()
 
 
+def test_extract_execution_log(tmp_path):
+    from dataerai_hls4ml.provenance import _extract_execution_log
+    nb = {"cells": [{"cell_type": "code", "execution_count": 1, "source": ["print('hi')\n"],
+                     "outputs": [{"output_type": "stream", "name": "stdout", "text": ["hello-out\n"]}]}],
+          "nbformat": 4, "nbformat_minor": 5, "metadata": {}}
+    p = tmp_path / "nb.ipynb"
+    p.write_text(json.dumps(nb))
+    log = _extract_execution_log(p)
+    assert "hello-out" in log and "In[1]" in log
+
+
+def test_use_collection_and_notebook_record(dry_settings, workspace):
+    run = _run(dry_settings, workspace)
+    cid = run.use_collection("hls4ml — partX")
+    assert cid and run.settings.collection_id == cid
+    (workspace / "partX.ipynb").write_text(json.dumps(
+        {"cells": [{"cell_type": "code", "execution_count": 1, "source": ["x=1\n"], "outputs": []}],
+         "nbformat": 4, "nbformat_minor": 5, "metadata": {}}))
+    run.preserve_notebook_record(workspace, "partX")
+    kinds = {a.kind for a in run.artifacts.values()}
+    assert "notebook" in kinds and "log" in kinds
+    assert run.get("partX — notebook") and run.get("partX — execution log")
+
+
 def test_environment_capture(dry_settings, workspace):
     run = _run(dry_settings, workspace)
     env = run.manifest()["environment"]

@@ -84,8 +84,10 @@ class ProvenanceRun:
         self.run_sk = None
         self.integrity_root: Optional[str] = None
         self.closed = False
+        self._batched = False  # whether any Layer-3 lineage batch was appended
         self.artifacts: Dict[str, Artifact] = {}
         self.edges: List[dict] = []
+        self._collections: Dict[str, Optional[str]] = {}  # title -> collection id
         self.started_at = _utcnow()
         self.env = {
             "git_sha": _git_sha(self.base_dir),
@@ -113,13 +115,21 @@ class ProvenanceRun:
         self.rest = RestClient(self.settings)
         self._resolve_owner()
         self.preserver = Preserver(self.settings, self.rest)
+        # The Layer-3 sealed run is opened lazily (see _ensure_run) — only when a
+        # lineage batch is actually appended (trained-on with DIDs). Opening one
+        # eagerly and closing it empty is a 409 ("no committed batches").
+
+    def _ensure_run(self) -> Optional[str]:
+        """Open the sealed lineage run on first real use; returns its id or None."""
+        if self.run_id or self.settings.dry_run or self.rest is None:
+            return self.run_id
         try:
             resp = self.rest.open_run(self.kind)
             self.run_id = resp.get("run_id")
             self.run_sk = resp.get("run_sk")
         except Exception as exc:
-            _warn(f"lineage run open failed ({exc}); continuing with the "
-                  "relationship graph (Layer 2) only.")
+            _warn(f"lineage run open failed ({exc}); relationship graph (Layer 2) still recorded.")
+        return self.run_id
 
     def _resolve_owner(self) -> None:
         if self.settings.owner_id:
@@ -201,6 +211,45 @@ class ProvenanceRun:
         """Look up an artifact preserved earlier (incl. by a previous notebook)."""
         return self.artifacts.get(name)
 
+    # ── per-notebook collections ─────────────────────────────────────────────────
+    def use_collection(self, title: str) -> Optional[str]:
+        """Route subsequently-preserved artifacts into the collection *title*
+        (get-or-create), so each notebook's outputs live in their own collection."""
+        if title in self._collections:
+            cid = self._collections[title]
+        elif self.settings.dry_run:
+            cid = dryrun.fake_asset_id(f"collection:{title}")
+        elif self.rest is not None and self.settings.project_id:
+            try:
+                cid = self.rest.get_or_create_collection(self.settings.project_id, title)
+            except Exception as exc:
+                _warn(f"collection '{title}' unavailable ({exc}); using project root.")
+                cid = None
+        else:
+            cid = None
+        self._collections[title] = cid
+        self.settings.collection_id = cid  # Preserver routes uploads here
+        return cid
+
+    def preserve_notebook_record(self, root, notebook: str) -> None:
+        """Static 'recording': preserve the notebook file + its execution log
+        (both into the active collection). Prefers the papermill-executed copy."""
+        root = Path(root)
+        nb = next((p for p in (root / f"{notebook}.executed.ipynb", root / f"{notebook}.ipynb")
+                   if p.exists()), None)
+        if nb is None:
+            return
+        rec = self.preserve_file(nb, title=f"{notebook} — notebook", kind="notebook",
+                                 metadata={"notebook": notebook})
+        try:
+            log_path = root / f"{notebook}.execution.log"
+            log_path.write_text(_extract_execution_log(nb))
+            log = self.preserve_file(log_path, title=f"{notebook} — execution log", kind="log",
+                                     metadata={"notebook": notebook})
+            self.add_edge(log, rec, "derived_from", step="execution-log")
+        except Exception as exc:
+            _warn(f"execution-log capture failed for {notebook} ({exc}).")
+
     # ── edges ────────────────────────────────────────────────────────────────────
     def add_edge(self, frm: Union[Artifact, str], to: Union[Artifact, str], rel_type: str, *,
                  step: Optional[str] = None, note: Optional[str] = None,
@@ -236,9 +285,10 @@ class ProvenanceRun:
         for ds in datasets:
             self.add_edge(model, ds, "trained_on")
         dids = [d.did for d in datasets if isinstance(d, Artifact) and d.did]
-        if self.run_id and dids and not self.settings.dry_run and self.rest is not None:
+        if dids and not self.settings.dry_run and self.rest is not None and self._ensure_run():
             try:
                 self.rest.trained_on(self.run_id, dids)
+                self._batched = True
             except Exception as exc:
                 _warn(f"lineage trained-on failed ({exc}); relationship edges still recorded.")
 
@@ -276,7 +326,7 @@ class ProvenanceRun:
 
     def save(self, *, close: bool = True) -> dict:
         """Close the lineage run (sealing it) and write the manifest + markdown."""
-        if close and self.run_id and not self.settings.dry_run and self.rest is not None:
+        if close and self.run_id and self._batched and not self.settings.dry_run and self.rest is not None:
             try:
                 res = self.rest.close_run(self.run_id)
                 self.integrity_root = res.get("integrity_root")
@@ -307,8 +357,35 @@ _KIND_STYLE = {
     "hls_project": ("#e9f7ef", "#2e8b57"),
     "array": ("#fff4e5", "#e67e22"),
     "bitstream": ("#fde8e8", "#c0392b"),
+    "notebook": ("#fff9db", "#d4a72c"),
+    "log": ("#f1f3f5", "#868e96"),
     "artifact": ("#f0f0f0", "#888888"),
 }
+
+
+def _extract_execution_log(nb_path) -> str:
+    """Render a notebook's saved cell outputs as a plain-text execution log."""
+    data = json.loads(Path(nb_path).read_text())
+    out = [f"# Execution log — {Path(nb_path).name}", ""]
+    for i, cell in enumerate(data.get("cells", [])):
+        if cell.get("cell_type") != "code":
+            continue
+        src = "".join(cell.get("source", []))
+        out.append(f"## In[{cell.get('execution_count')}]  (cell {i})")
+        if src.strip():
+            out += ["```python", src.rstrip(), "```"]
+        for o in cell.get("outputs", []):
+            ot = o.get("output_type")
+            if ot == "stream":
+                out.append("".join(o.get("text", [])).rstrip())
+            elif ot in ("execute_result", "display_data"):
+                txt = o.get("data", {}).get("text/plain")
+                if txt:
+                    out.append("".join(txt).rstrip())
+            elif ot == "error":
+                out.append(f"[ERROR] {o.get('ename')}: {o.get('evalue')}")
+        out.append("")
+    return "\n".join(out)
 
 
 def to_dot(man: dict) -> str:
@@ -441,17 +518,26 @@ def save(**kw) -> dict:
     return current().save(**kw)
 
 
-def capture(root: PathLike = ".", *, label: str = "hls4ml-pipeline",
-            kind: str = "training", close: bool = False) -> dict:
-    """One-call instrumentation: preserve every pipeline output present under *root*
-    and link them into the shared lineage run, then (re)write the manifest + report.
+def capture(root: PathLike = ".", *, notebook: Optional[str] = None,
+            label: str = "hls4ml-pipeline", kind: str = "training",
+            close: bool = False) -> dict:
+    """One-call instrumentation: preserve this notebook's pipeline outputs, link them
+    into the shared lineage run, and (re)write the manifest + report.
 
-    Safe to call from the end of *every* notebook — it's idempotent (already-preserved
-    artifacts and edges are reused, not duplicated) and order-independent, so the
+    When *notebook* is given, that notebook's artifacts — plus a static "recording"
+    (the notebook file + its execution log) — are routed into a per-notebook Dataerai
+    collection. Safe to call from the end of *every* notebook: idempotent
+    (already-preserved artifacts/edges are reused) and order-independent, so the
     lineage DAG accumulates as more parts run. Pass ``close=True`` to seal the run.
     """
-    from .pipeline import preserve_and_link
+    from .pipeline import NOTEBOOK_ARTIFACTS, preserve_and_link
 
     run = get_run(label, kind=kind, base_dir=root)
-    preserve_and_link(run, root)
+    only = None
+    if notebook:
+        run.use_collection(f"hls4ml — {notebook}")
+        only = NOTEBOOK_ARTIFACTS.get(notebook)
+    preserve_and_link(run, root, only=only)
+    if notebook:
+        run.preserve_notebook_record(root, notebook)
     return run.save(close=close)

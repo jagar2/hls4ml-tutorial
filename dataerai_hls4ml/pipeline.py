@@ -55,6 +55,22 @@ EDGES: List[Tuple[str, str, str, Optional[str]]] = [
     ("bdt_hls", "bdt", "derived_from", "synthesize"),
 ]
 
+# Which LAYOUT artifacts each notebook produces — used to route a notebook's
+# outputs into its own collection (see ProvenanceRun.use_collection).
+NOTEBOOK_ARTIFACTS = {
+    "part1_getting_started": ["dataset", "model_1", "model_1_hls"],
+    "part2_advanced_config": [],
+    "part3_compression": ["model_2", "model_2_hls"],
+    "part4_quantization": ["model_3", "model_3_hls"],
+    "part4.1_HG_quantization": [],
+    "part5_bdt": ["bdt", "bdt_hls"],
+    "part6_cnns": ["cnn_pruned", "cnn_quantized"],
+    "part7a_bitstream": ["model_3_hls_pynq"],
+    "part7b_deployment": [],
+    "part7c_validation": ["y_hls"],
+    "part8_symbolic_regression": ["sr"],
+}
+
 
 def _resolve(root: Path, spec) -> Optional[object]:
     _name, _kind, rel, _title = spec
@@ -65,14 +81,23 @@ def _resolve(root: Path, spec) -> Optional[object]:
     return target if target.exists() else None
 
 
-def preserve_and_link(run: ProvenanceRun, root: Union[str, Path] = ".") -> Dict[str, Artifact]:
-    """Preserve every pipeline output present under *root* and link them per the edge map."""
+def preserve_and_link(run: ProvenanceRun, root: Union[str, Path] = ".",
+                      only: Optional[list] = None) -> Dict[str, Artifact]:
+    """Preserve pipeline outputs present under *root* and link them per the edge map.
+
+    *only* restricts which LAYOUT artifacts to preserve (by name) — used to route a
+    single notebook's outputs into its own collection. Edges are still resolved
+    against *all* artifacts preserved so far (this run + earlier notebooks), so
+    cross-notebook lineage links form regardless of the filter.
+    """
     from .provenance import _warn
 
     root = Path(root)
     preserved: Dict[str, Artifact] = {}
     for spec in LAYOUT:
         name, kind, _rel, title = spec
+        if only is not None and name not in only:
+            continue
         # Idempotent across repeated/cross-notebook calls: reuse an already-preserved
         # artifact (same title) instead of re-uploading it.
         existing = run.get(title)
@@ -98,9 +123,17 @@ def preserve_and_link(run: ProvenanceRun, root: Union[str, Path] = ".") -> Dict[
         except Exception as exc:
             _warn(f"could not preserve {name}: {exc}")
 
+    # Resolve edge endpoints across ALL preserved artifacts (by title), so links
+    # to artifacts from earlier notebooks are created too.
+    title_of = {n: t for (n, _k, _r, t) in LAYOUT}
+
+    def _resolve_art(nm):
+        return preserved.get(nm) or run.get(title_of[nm])
+
     for frm, to, rel_type, step in EDGES:
-        if frm in preserved and to in preserved:
-            run.add_edge(preserved[frm], preserved[to], rel_type, step=step)
+        af, at = _resolve_art(frm), _resolve_art(to)
+        if af is not None and at is not None:
+            run.add_edge(af, at, rel_type, step=step)
     return preserved
 
 

@@ -74,8 +74,12 @@ export DATAERAI_DRY_RUN=1
 ## Usage
 
 **Option A — just run the notebooks.** Each part ends with one idempotent cell
-that calls `dp.capture()`. Run the parts in order; the lineage graph accumulates.
-`PROVENANCE.md` and `provenance_manifest.json` are (re)written each time.
+that calls `dp.capture(notebook="<part>")`. That call routes the notebook's
+artifacts into a **per-notebook Dataerai collection** (`hls4ml — <part>`), links
+them into the shared lineage DAG, and adds a static **recording** — the notebook
+file plus its extracted execution log — to that collection. Run the parts in
+order; the graph accumulates. `PROVENANCE.md` / `provenance_manifest.json` are
+(re)written each time.
 
 **Option B — capture at the end** (after running notebooks your own way):
 

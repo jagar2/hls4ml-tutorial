@@ -44,6 +44,19 @@ def test_preserve_and_link_is_idempotent(dry_settings, workspace):
     assert {k: v.asset_id for k, v in first.items()} == {k: v.asset_id for k, v in second.items()}
 
 
+def test_only_filter_scopes_preservation_but_keeps_crossnotebook_edges(dry_settings, workspace):
+    run = _run(dry_settings, workspace)
+    p1 = pipeline.preserve_and_link(run, workspace, only=["dataset", "model_1", "model_1_hls"])
+    assert set(p1) <= {"dataset", "model_1", "model_1_hls"}
+    # A later "notebook" preserves only its own artifacts...
+    p3 = pipeline.preserve_and_link(run, workspace, only=["model_2", "model_2_hls"])
+    assert set(p3) == {"model_2", "model_2_hls"}
+    # ...but the cross-notebook edge model_2 --derived_from--> model_1 still forms.
+    m1, m2 = run.get("Baseline MLP (part1)"), run.get("Pruned MLP (part3)")
+    assert any(e["from"] == m2.asset_id and e["to"] == m1.asset_id and e["type"] == "derived_from"
+               for e in run.edges)
+
+
 def test_make_synthetic_workspace_contents(tmp_path):
     root = pipeline.make_synthetic_workspace(tmp_path)
     assert (root / "model_1" / "KERAS_check_best_model.h5").exists()
