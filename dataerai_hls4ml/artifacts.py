@@ -17,6 +17,7 @@ import hashlib
 import os
 import tarfile
 import tempfile
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Iterable, Optional, Union
@@ -140,6 +141,18 @@ def _close_client() -> None:  # pragma: no cover - process teardown
             _CLIENT.close()
         finally:
             _CLIENT = None
+
+
+def _transient_upload_error(exc: Exception) -> bool:
+    msg = str(exc).lower()
+    return any(token in msg for token in (
+        "http 502",
+        "http 503",
+        "http 504",
+        "502 bad gateway",
+        "503 service unavailable",
+        "504 gateway timeout",
+    ))
 
 
 class Preserver:
@@ -269,7 +282,14 @@ class Preserver:
         if self.settings.collection_id and self.settings.owner_type == "project":
             kwargs["collection_id"] = self.settings.collection_id
         client = _get_client(self.settings)
-        result = client.upload(file_path, **kwargs)
+        for attempt in range(3):
+            try:
+                result = client.upload(file_path, **kwargs)
+                break
+            except Exception as exc:
+                if attempt == 2 or not _transient_upload_error(exc):
+                    raise
+                time.sleep(2 ** attempt)
         did = None
         if self.rest is not None:
             try:

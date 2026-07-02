@@ -17,6 +17,7 @@ Every contract here was verified against ``origin/beta``:
 from __future__ import annotations
 
 import uuid
+import time
 from typing import Any, Iterable, Optional
 
 from .config import Settings, read_credentials, refresh_credentials
@@ -59,11 +60,15 @@ class RestClient:
 
     def _request(self, method: str, path: str, *, json_body=None, params=None,
                  retry_auth: bool = True) -> Any:
-        resp = self._session.request(
-            method, self._url(path),
-            headers=self._headers(), json=json_body, params=params,
-            timeout=self.settings.timeout, verify=self.settings.verify_tls,
-        )
+        for attempt in range(3):
+            resp = self._session.request(
+                method, self._url(path),
+                headers=self._headers(), json=json_body, params=params,
+                timeout=self.settings.timeout, verify=self.settings.verify_tls,
+            )
+            if resp.status_code not in {502, 503, 504} or attempt == 2:
+                break
+            time.sleep(2 ** attempt)
         # On 401, let the CLI refresh+persist the token once, then retry.
         if resp.status_code == 401 and retry_auth and not self._refreshed_once:
             self._refreshed_once = True
