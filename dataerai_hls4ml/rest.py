@@ -160,6 +160,29 @@ class RestClient:
     def get_run(self, run_id: str) -> dict:
         return self._request("GET", f"/api/lineage/runs/{run_id}/")
 
+    def resolve_record_sk(self, asset_id: str, subject_kind: int = 1) -> Optional[int]:
+        """Resolve an asset's ProvenanceRecord surrogate key (needed as an edge's
+        dst_sk) via GET /api/lineage/trace/. Returns None if the async provenance
+        record isn't minted yet (subject_kind=1 == asset)."""
+        try:
+            r = self._request("GET", "/api/lineage/trace/",
+                             params={"subject_kind": subject_kind, "subject_id": asset_id})
+        except RestError:
+            return None
+        candidates = []
+        if isinstance(r, dict):
+            if isinstance(r.get("start"), dict):
+                candidates.append(r["start"])
+            candidates.extend(n for n in (r.get("nodes") or []) if isinstance(n, dict))
+        for c in candidates:
+            sk = c.get("record_sk") or c.get("sk")
+            if sk and (c.get("subject_id") in (asset_id, None)):
+                try:
+                    return int(sk)
+                except (TypeError, ValueError):
+                    return None
+        return None
+
     # ── Layer 4: verifiable DID identity (citation) ─────────────────────────────
     def resolve_did(self, did: str) -> dict:
         # Public endpoint; no bearer needed, and 404 for gated/unminted DIDs.

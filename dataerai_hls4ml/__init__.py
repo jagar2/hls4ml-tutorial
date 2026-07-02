@@ -42,6 +42,7 @@ from .provenance import (
     save,
     trained_on,
 )
+from .training import finalize_training, keras_callback
 
 __version__ = "0.1.0"
 
@@ -54,7 +55,9 @@ __all__ = [
     "capture",
     "current",
     "enabled",
+    "finalize_training",
     "get_run",
+    "keras_callback",
     "load_settings",
     "preserve_and_link",
     "preserve_array",

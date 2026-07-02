@@ -123,6 +123,35 @@ Key functions: `enabled()`, `get_run()`, `capture()`, `preserve_dataset()`,
 `preserve_dir()`, `add_edge()`, `trained_on()`, `save()`. See
 [`dataerai_hls4ml/`](dataerai_hls4ml) for full docstrings.
 
+## Neural-network training tracking
+
+Every `model.fit(...)` in the tutorial (the MLPs in parts 1/3/4 and the CNNs in
+part 6 — baseline-pruned, quantized-pruned, and AutoQKeras) is tracked with a
+Keras callback that logs the training run to Dataerai:
+
+```python
+callbacks = list(callbacks) + [dp.keras_callback(
+    "Pruned CNN (part6) training", notebook="part6_cnns",
+    model_title="Pruned CNN (part6)")]
+model_pruned.fit(train_data, epochs=n_epochs, validation_data=val_data, callbacks=callbacks)
+```
+
+On each run the callback captures the **hyperparameters** (optimizer, learning
+rate, parameter count, wall-clock) and **per-epoch metrics** (loss/accuracy/…),
+preserves them as a **training-log** asset in the notebook's collection, preserves
+the **trained model** (deduped with the end-of-notebook `capture()`), links
+`training-log --derived_from--> model`, and registers the run in Dataerai's
+**lineage graph** via the platform's `record_training_run` (Lineage-run API) — the
+shipped mechanism for logging a training run (`kind='training'` + a `trained_on`
+edge carrying `{params, metrics}`). When the `dataerai[ml]` SDK is installed the
+callback calls `record_training_run` directly; otherwise it uses the same lineage
+REST endpoints.
+
+> The platform's *neural-attribution* SDK (`TrainingAttributionRecorder`) is
+> PyTorch-only and on unmerged feature branches, so it can't instrument this
+> Keras/TF tutorial; the Lineage-run training API above is the shipped tooling for
+> "track a training run" and is what this callback uses.
+
 ## Environment variables
 
 | Var | Default | Meaning |
