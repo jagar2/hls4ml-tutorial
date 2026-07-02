@@ -59,4 +59,33 @@ Assets appear under your beta project; the lineage run id + edges are printed an
 written to `provenance_manifest.json`. See [../DATAERAI_PROVENANCE.md](../DATAERAI_PROVENANCE.md).
 
 > The daemon in the container performs the S3 multipart upload using the token you
-> pass. For long sessions, refresh the token on the host and re-run.
+> pass. For long sessions, refresh the token on the host and re-run. (The macOS
+> Keychain value is `go-keyring-base64:`-prefixed base64 — decode it before use.)
+
+## Training image (`Dockerfile.train`, linux/amd64)
+
+The lightweight image above deliberately omits TensorFlow. To run the tutorial's
+**notebook training** (and the `dp.keras_callback` tracking) in a container, use
+`docker/Dockerfile.train`, which adds the CPU ML stack. The tutorial pins
+TensorFlow 2.14 (x86-64 Linux wheels only), so it targets **linux/amd64** — native
+on x86 hosts, emulated on Apple Silicon.
+
+```bash
+# amd64 daemon into the build context (git-ignored):
+(cd cli && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o ../docker/bin/dataerai-amd64 ./cmd/dataerai-transfer)
+
+docker build --platform linux/amd64 -f docker/Dockerfile.train -t dataerai-hls4ml-train .
+
+# run Part 1 training under papermill (captures provenance incl. training tracking):
+docker run --rm --platform linux/amd64 \
+  -e DATAERAI_SERVER=https://beta.dataerai.com \
+  -e DATAERAI_PROJECT_ID=<your-project-uuid> \
+  -v <host-creds>:/root/.config/dataerai/credentials:ro \
+  dataerai-hls4ml-train run --only part1_getting_started
+```
+
+> On Apple Silicon this runs under emulation (slow); prefer native x86 for real
+> training. To verify the tracking callback **without** the full toolchain, run a
+> short Keras `fit()` with `dp.keras_callback(...)` in any TF environment and then
+> `python run_pipeline.py refresh` — a training-log asset + a sealed lineage run
+> land in the `hls4ml — <part>` collection.
