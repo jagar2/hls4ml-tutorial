@@ -708,6 +708,70 @@ class ProvenanceRun:
             except Exception as exc:
                 _warn(f"lineage trained-on failed ({exc}); relationship edges still recorded.")
 
+    # ── DID refresh + sealing (async provenance catches up) ──────────────────────
+    def refresh_dids(self, *, retries: int = 1, sleep_s: float = 0.0) -> int:
+        """Re-fetch each preserved asset's DID and update the registry.
+
+        DIDs are minted **asynchronously**, so they're usually absent at upload
+        time (``art.did is None``); call this a little later so citations + the
+        sealed lineage run can populate. Returns the count of newly-resolved DIDs.
+        """
+        if self.settings.dry_run or self.rest is None:
+            return 0
+        pending = [a for a in self.artifacts.values() if not a.did]
+        updated = 0
+        for attempt in range(max(1, retries)):
+            if not pending:
+                break
+            still: List[Artifact] = []
+            for art in pending:
+                try:
+                    did = self.rest.get_asset(art.asset_id).get("did") or None
+                except Exception:
+                    did = None
+                if did:
+                    art.did = did
+                    updated += 1
+                else:
+                    still.append(art)
+            pending = still
+            if pending and sleep_s and attempt + 1 < retries:
+                time.sleep(sleep_s)
+        if updated:
+            self._save_state()
+        return updated
+
+    def seal_lineage_run(self) -> Optional[str]:
+        """Seal the Layer-3 lineage run using the dataset DIDs now available:
+        append the ``trained_on`` batch (run → dataset records) and close the run,
+        producing an ``integrity_root``. No-op until a dataset DID is resolvable."""
+        if self.settings.dry_run or self.rest is None or self.closed:
+            return self.run_id
+        by_id = {a.asset_id: a for a in self.artifacts.values()}
+        dataset_dids = sorted({
+            by_id[e["to"]].did
+            for e in self.edges
+            if e["type"] == "trained_on" and by_id.get(e["to"]) and by_id[e["to"]].did
+        })
+        if not dataset_dids or not self._ensure_run():
+            return self.run_id
+        try:
+            self.rest.trained_on(self.run_id, dataset_dids)
+            self._batched = True
+            res = self.rest.close_run(self.run_id)
+            self.integrity_root = res.get("integrity_root")
+            self.closed = True
+        except Exception as exc:
+            _warn(f"sealing lineage run failed ({exc}); relationship graph still recorded.")
+        return self.run_id
+
+    def refresh(self, *, retries: int = 5, sleep_s: float = 3.0) -> dict:
+        """Re-fetch async DIDs, seal the lineage run, and rewrite the manifest — so
+        citations + the integrity root populate once minting has caught up."""
+        self.refresh_dids(retries=retries, sleep_s=sleep_s)
+        self.seal_lineage_run()
+        return self.save(close=False)
+
     # ── citations / close / manifest ─────────────────────────────────────────────
     def _collect_citations(self) -> List[dict]:
         cites = []
@@ -935,6 +999,15 @@ def trained_on(model, datasets) -> None:
 
 def save(**kw) -> dict:
     return current().save(**kw)
+
+
+def refresh(root: PathLike = ".", *, label: str = "hls4ml-pipeline",
+            retries: int = 5, sleep_s: float = 3.0) -> dict:
+    """Re-fetch async-minted DIDs and seal the lineage run for the persisted run,
+    then rewrite the manifest. Run this a short while after the notebooks (once the
+    backend has minted DIDs) to populate citations + the integrity root."""
+    run = get_run(label, base_dir=root)
+    return run.refresh(retries=retries, sleep_s=sleep_s)
 
 
 def capture(root: PathLike = ".", *, notebook: Optional[str] = None,

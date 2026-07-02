@@ -39,6 +39,7 @@ from .provenance import (
     preserve_file,
     preserve_hls_project,
     preserve_keras_model,
+    refresh,
     save,
     trained_on,
 )
@@ -66,6 +67,7 @@ __all__ = [
     "preserve_file",
     "preserve_hls_project",
     "preserve_keras_model",
+    "refresh",
     "save",
     "trained_on",
 ]

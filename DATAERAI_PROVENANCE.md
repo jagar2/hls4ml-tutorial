@@ -167,18 +167,32 @@ REST endpoints.
 ## Viewing provenance in Dataerai
 
 After a live run, each artifact is an asset under your project; open any asset to
-see its **relationships** (the lineage edges) and, where DID minting is enabled,
-its **DID document** for citation. The sealed lineage run is retrievable at
-`GET /api/lineage/runs/<run_id>/` (its id is printed by each cell and stored in
-`provenance_manifest.json`).
+see its **relationships** (the lineage edges) and its **DID document** for
+citation. The sealed lineage run is retrievable at `GET /api/lineage/runs/<run_id>/`
+(its id is stored in `provenance_manifest.json`).
+
+### Populating DIDs + the sealed run (`refresh`)
+
+DIDs are minted **asynchronously**, so they're usually not present the instant an
+asset is uploaded. Run `refresh` a short while after the notebooks to re-fetch the
+minted DIDs, seal the lineage run (feeding the dataset DIDs → an `integrity_root`),
+and rewrite the manifest with citations:
+
+```bash
+python run_pipeline.py refresh --root .          # or: dp.refresh(".") in Python
+```
+
+It re-fetches each asset's `did`, appends the `trained_on` batch to the run, closes
+it, and repopulates `provenance_manifest.json` (`citations` + `integrity_root`).
 
 ## Limitations (honest)
 
 - **FPGA synthesis** (Part 7) needs Xilinx Vitis HLS — unaffected by this layer,
   but those cells only complete where Vitis is installed. Provenance for the HLS
   projects/bitstream is still captured wherever the files exist.
-- **DID minting is gated on beta** — Layer 4 citations populate only when minting
-  is enabled for your tenant; Layers 1–3 always give full preservation + lineage.
+- **DIDs are minted asynchronously** — Layer 4 citations + the sealed run's
+  `integrity_root` populate after minting catches up; run `refresh` (above) to
+  pull them in. Layers 1–3 give full preservation + lineage immediately.
 - Provenance writes need a token with write scope; otherwise the lineage is still
   embedded in each asset's metadata and in the local manifest.
 

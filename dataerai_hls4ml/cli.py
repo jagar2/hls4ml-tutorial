@@ -121,6 +121,29 @@ def cmd_demo(args) -> int:
     return 0
 
 
+def cmd_refresh(args) -> int:
+    """Re-fetch async-minted DIDs and seal the lineage run for the persisted run."""
+    _apply_env(args)
+    from .provenance import get_run
+
+    root = Path(args.root)
+    run = get_run("hls4ml-pipeline", base_dir=root)
+    if not run.artifacts:
+        print(f"No persisted run under {root} (.dataerai_run.json) — run capture/demo first.",
+              file=sys.stderr)
+        return 1
+    new = run.refresh_dids(retries=args.retries, sleep_s=args.interval)
+    run.seal_lineage_run()
+    manifest = run.save(close=False)
+    cites = manifest.get("citations") or []
+    with_did = sum(1 for a in manifest["artifacts"] if a.get("did"))
+    print(f"  DIDs newly resolved : {new}")
+    print(f"  assets with a DID   : {with_did}/{len(manifest['artifacts'])}")
+    print(f"  citations           : {len(cites)}")
+    print(f"  lineage run         : {manifest['run_id']}  integrity={manifest.get('integrity_root')}")
+    return 0
+
+
 def cmd_run(args) -> int:
     _apply_env(args)
     try:
@@ -198,6 +221,13 @@ def build_parser() -> argparse.ArgumentParser:
                        help="per-notebook capture: one collection + recording per part")
     d.add_argument("--root", default=".", help="repo root (default: .)")
     d.set_defaults(func=cmd_demo)
+
+    rf = sub.add_parser("refresh", parents=[common],
+                        help="re-fetch async-minted DIDs + seal the lineage run")
+    rf.add_argument("--root", default=".", help="repo root (default: .)")
+    rf.add_argument("--retries", type=int, default=5, help="DID re-fetch attempts (default: 5)")
+    rf.add_argument("--interval", type=float, default=3.0, help="seconds between attempts (default: 3)")
+    rf.set_defaults(func=cmd_refresh)
 
     r = sub.add_parser("run", parents=[common],
                        help="papermill-execute notebooks under one lineage run")
