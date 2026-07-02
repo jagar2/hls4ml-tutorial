@@ -1,0 +1,39 @@
+# Dataerai × hls4ml — TRAINING image (linux/amd64).
+#
+# The tutorial pins TensorFlow 2.14, which ships x86-64 Linux wheels only — so this
+# image targets linux/amd64 (runs natively on x86 hosts; under emulation on Apple
+# Silicon). It adds the TF/ML stack on top of the provenance runtime so notebook
+# training — and the `dp.keras_callback(...)` training tracking — runs in-container.
+#
+# Prereqs (git-ignored; see docker/README.md):
+#   docker/bin/dataerai-amd64      linux/amd64 daemon:
+#     (cd cli && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o ../docker/bin/dataerai-amd64 ./cmd/dataerai-transfer)
+#   docker/vendor/dataerai-sdk     the Dataerai Python SDK source
+#
+# Build:  docker build --platform linux/amd64 -f docker/Dockerfile.train -t dataerai-hls4ml-train .
+FROM --platform=linux/amd64 python:3.10-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates git \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /app
+
+COPY docker/bin/dataerai-amd64 /usr/local/bin/dataerai
+RUN chmod +x /usr/local/bin/dataerai
+ENV DATAERAI_BINARY=/usr/local/bin/dataerai
+
+COPY docker/vendor/dataerai-sdk /opt/dataerai-sdk
+RUN pip install --no-cache-dir /opt/dataerai-sdk
+
+# CPU ML stack matching the tutorial pins. Add qkeras / hls4ml if you need
+# quantization / synthesis in-container.
+RUN pip install --no-cache-dir \
+      tensorflow-cpu==2.14.0 scikit-learn==1.2.2 pandas numpy matplotlib papermill
+
+COPY . /app
+RUN pip install --no-cache-dir -e .
+
+ENV DATAERAI_SERVER=https://beta.dataerai.com
+# Runs Part 1 under papermill and captures provenance (incl. dp.keras_callback
+# training tracking). Pass creds via a mounted config or env at run time.
+ENTRYPOINT ["python", "run_pipeline.py"]
+CMD ["run", "--only", "part1_getting_started"]
