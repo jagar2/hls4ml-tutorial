@@ -456,6 +456,10 @@ def _aid(x: Union[Artifact, str]) -> str:
     return x.asset_id if isinstance(x, Artifact) else str(x)
 
 
+def _slug(s: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", str(s).lower()).strip("-") or "item"
+
+
 class ProvenanceRun:
     """One instrumented pipeline run. Usable directly or as a context manager."""
 
@@ -594,6 +598,20 @@ class ProvenanceRun:
 
     def preserve_file(self, path, **kw) -> Artifact:
         return self._register(self.preserver.preserve_file(path, **kw))
+
+    def reference_dataset(self, name: str, *, source: Optional[str] = None,
+                          metadata: Optional[dict] = None, root: Optional[PathLike] = None) -> Artifact:
+        """Preserve a lightweight descriptor for an EXTERNAL dataset (loaded via tfds /
+        OpenML / a URL rather than local files) as a citable ``dataset`` asset — so a
+        model can record a ``trained_on`` edge to it and the sealed lineage run can
+        populate. Returns the dataset :class:`Artifact`."""
+        base = Path(root) if root is not None else self.base_dir
+        md = dict(metadata or {})
+        doc = {"name": name, "source": source, "recorded_at": _utcnow(), **md}
+        path = base / f"{_slug(name)}.dataset.json"
+        path.write_text(json.dumps(doc, indent=2, default=str))
+        return self.preserve_file(path, title=name, kind="dataset",
+                                  metadata=({"source": source, **md} if source else md))
 
     def get(self, name: str) -> Optional[Artifact]:
         """Look up an artifact preserved earlier (incl. by a previous notebook)."""
@@ -991,6 +1009,10 @@ def preserve_array(path, **kw) -> Artifact:
 
 def preserve_file(path, **kw) -> Artifact:
     return current().preserve_file(path, **kw)
+
+
+def reference_dataset(name, **kw) -> Artifact:
+    return current().reference_dataset(name, **kw)
 
 
 def add_edge(frm, to, rel_type, **kw) -> dict:
