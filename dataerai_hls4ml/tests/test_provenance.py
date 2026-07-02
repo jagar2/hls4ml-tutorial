@@ -1,4 +1,5 @@
 import base64
+import importlib.metadata
 import json
 
 from dataerai_hls4ml.artifacts import Artifact
@@ -89,6 +90,28 @@ def test_environment_capture(dry_settings, workspace):
     for key in ("python", "platform", "host", "tools"):
         assert key in env
     assert isinstance(env["tools"], dict)
+
+
+def test_tool_versions_are_json_scalar_strings(monkeypatch):
+    from dataerai_hls4ml import provenance
+
+    class VersionLike:
+        def __str__(self):
+            return "1.2.3"
+
+    def fake_version(name):
+        if name == "fake_tool":
+            return VersionLike()
+        raise importlib.metadata.PackageNotFoundError
+
+    monkeypatch.setattr(provenance, "_TOOLS", ["fake_tool"])
+    monkeypatch.setattr(provenance.importlib.metadata, "version", fake_version)
+    monkeypatch.setattr(provenance, "_TOOL_VERSION_CACHE", None)
+
+    versions = provenance._tool_versions()
+
+    assert versions == {"fake_tool": "1.2.3"}
+    json.dumps(versions)
 
 
 def test_add_edge_accepts_ids_and_artifacts(dry_settings, workspace):

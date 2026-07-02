@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 import base64
 import hashlib
+import importlib.metadata
 import os
 import platform
 import re
@@ -41,6 +42,10 @@ from .config import Settings, load_settings
 STATE_FILE = ".dataerai_run.json"
 FIGURE_DIR = ".dataerai_figures"
 _TOOLS = ["tensorflow", "hls4ml", "qkeras", "conifer", "numpy", "sklearn", "pysr", "xgboost"]
+_TOOL_DISTS = {
+    "qkeras": "QKeras",
+    "sklearn": "scikit-learn",
+}
 _ENVIRONMENT_FILES = [
     "requirements.txt",
     "environment.yml",
@@ -93,9 +98,8 @@ def _tool_versions() -> Dict[str, str]:
     versions: Dict[str, str] = {}
     for name in _TOOLS:
         try:
-            mod = __import__(name)
-            versions[name] = getattr(mod, "__version__", "unknown")
-        except Exception:
+            versions[name] = str(importlib.metadata.version(_TOOL_DISTS.get(name, name)))
+        except importlib.metadata.PackageNotFoundError:
             continue
     _TOOL_VERSION_CACHE = versions
     return dict(versions)
