@@ -117,13 +117,16 @@ def _get_client(settings: Settings):
     if _CLIENT is not None:
         return _CLIENT
     try:
-        from dataerai import DataEraiClient
+        import dataerai
     except ImportError as exc:  # pragma: no cover - environment dependent
         raise RuntimeError(
             "the Dataerai Python SDK is required for live preservation; "
             "`pip install -e <dataerai-repo>/sdk/python` or run with --dry-run"
         ) from exc
-    client = DataEraiClient(binary_path=settings.binary_path)
+    Client = getattr(dataerai, "DataeraiClient", None) or getattr(dataerai, "DataEraiClient", None)
+    if Client is None:
+        raise RuntimeError("the Dataerai Python SDK does not expose a daemon client")
+    client = Client(binary_path=settings.binary_path)
     client.connect()
     atexit.register(_close_client)
     _CLIENT = client
