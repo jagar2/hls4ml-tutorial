@@ -23,7 +23,8 @@ Requires TensorFlow (any recent version); it is only imported when run.
 import os
 import sys
 
-os.environ.setdefault("DATAERAI_DRY_RUN", "1")
+# Offline unless credentials + an owner project are configured: the integration
+# auto-degrades to dry-run when no token is found (or force it with DATAERAI_DRY_RUN=1).
 os.environ.setdefault("DATAERAI_SERVER", "https://beta.dataerai.com")
 
 NOTEBOOK = "part6_cnns"
