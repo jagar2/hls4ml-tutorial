@@ -125,7 +125,7 @@ Key functions: `enabled()`, `get_run()`, `capture()`, `preserve_dataset()`,
 
 ## Neural-network training tracking
 
-Every `model.fit(...)` in the tutorial (the MLPs in parts 1/3/4 and the CNNs in
+Every `model.fit(...)` in the tutorial (the MLPs in parts 1/3/4/4.1 and the CNNs in
 part 6 — baseline-pruned, quantized-pruned, and AutoQKeras) is tracked with a
 Keras callback that logs the training run to Dataerai:
 

@@ -1,6 +1,8 @@
 import importlib.util
 import json
+import re
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -63,3 +65,39 @@ def test_keras_callback_lazy_tf():
         import tensorflow as tf
         cb = training.keras_callback("x", notebook="part6_cnns")
         assert isinstance(cb, tf.keras.callbacks.Callback)
+
+
+def _notebook_sources(name: str):
+    path = Path(__file__).resolve().parents[2] / name
+    nb = json.loads(path.read_text())
+    return ["".join(cell.get("source", [])) for cell in nb.get("cells", [])]
+
+
+def test_keras_training_cells_include_dataerai_callback():
+    keras_fit = re.compile(r"\b(model|model_pruned|qmodel_pruned|aqmodel)\.fit\s*\(")
+    notebooks = [
+        "part1_getting_started.ipynb",
+        "part3_compression.ipynb",
+        "part4_quantization.ipynb",
+        "part4.1_HG_quantization.ipynb",
+        "part6_cnns.ipynb",
+    ]
+    missing = []
+    for notebook in notebooks:
+        for i, source in enumerate(_notebook_sources(notebook)):
+            if keras_fit.search(source) and "keras_callback(" not in source:
+                missing.append(f"{notebook}:cell {i}")
+    assert missing == []
+
+
+def test_all_callbacks_notebooks_append_to_inner_callback_list():
+    # all_callbacks is an object whose Keras callback list lives on `.callbacks`;
+    # assigning `callbacks = list(callbacks) + ...` silently disables tracking.
+    for notebook in [
+        "part1_getting_started.ipynb",
+        "part3_compression.ipynb",
+        "part4_quantization.ipynb",
+    ]:
+        source = "\n".join(_notebook_sources(notebook))
+        assert "callbacks.callbacks.append(_dp.keras_callback" in source
+        assert "callbacks = list(callbacks) + [_dp.keras_callback" not in source
