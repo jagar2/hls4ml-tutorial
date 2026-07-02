@@ -299,6 +299,17 @@ def write_notebook_hardware_metrics(
     return path
 
 
+def _refresh_capture_hardware_metrics(path: Path) -> bool:
+    if not path.exists():
+        return True
+    try:
+        payload = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return True
+    execution = payload.get("execution") or {}
+    return execution.get("source") == "capture"
+
+
 def _environment_snapshot(root: Path, notebook: str, run_env: dict) -> dict:
     conda = {
         "default_env": os.environ.get("CONDA_DEFAULT_ENV"),
@@ -631,7 +642,7 @@ class ProvenanceRun:
             _warn(f"environment capture failed for {notebook} ({exc}).")
         try:
             hardware_path = root / f"{notebook}.hardware.json"
-            if not hardware_path.exists():
+            if _refresh_capture_hardware_metrics(hardware_path):
                 hardware_path = write_notebook_hardware_metrics(
                     root, notebook, success=None, source="capture")
             hardware = self.preserve_file(
