@@ -133,6 +133,9 @@ def cmd_run(args) -> int:
     root = Path(args.root)
     selected = args.only.split(",") if args.only else NOTEBOOK_ORDER
     os.environ.setdefault("DATAERAI_RUN_LABEL", "hls4ml-pipeline")
+    from .provenance import begin_hardware_sample, capture, get_run, write_notebook_hardware_metrics
+
+    get_run("hls4ml-pipeline", kind="training", fresh=True, base_dir=root)
     failures = []
     for stem in selected:
         nb = root / f"{stem}.ipynb"
@@ -141,19 +144,23 @@ def cmd_run(args) -> int:
             continue
         out = root / f"{stem}.executed.ipynb"
         print(f"▶ executing {nb.name} …")
+        sample = begin_hardware_sample()
+        success = True
+        error = None
         try:
             pm.execute_notebook(str(nb), str(out), kernel_name=args.kernel,
                                 progress_bar=False)
         except Exception as exc:  # synthesis/Vitis/heavy-train failures are expected
-            failures.append((stem, str(exc).splitlines()[-1][:160]))
+            success = False
+            error = str(exc).splitlines()[-1][:160]
+            failures.append((stem, error))
             print(f"  ! {stem} did not finish: {failures[-1][1]}", file=sys.stderr)
+        finally:
+            write_notebook_hardware_metrics(
+                root, stem, sample=sample, success=success, error=error, kernel=args.kernel)
+            capture(str(root), notebook=stem)
 
-    # Roll up whatever landed on disk — robust even if a notebook stopped early
-    # (e.g. at hls_model.build() without Vitis, after the model was already saved).
-    from . import pipeline
-    from .provenance import get_run
     run = get_run("hls4ml-pipeline", base_dir=root)
-    pipeline.preserve_and_link(run, root)
     manifest = run.save()
     _summarize(manifest)
     if failures:

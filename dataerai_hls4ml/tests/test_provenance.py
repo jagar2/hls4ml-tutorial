@@ -1,3 +1,4 @@
+import base64
 import json
 
 from dataerai_hls4ml.artifacts import Artifact
@@ -50,17 +51,36 @@ def test_extract_execution_log(tmp_path):
     assert "hello-out" in log and "In[1]" in log
 
 
-def test_use_collection_and_notebook_record(dry_settings, workspace):
+def test_use_collection_and_notebook_record(dry_settings, workspace, monkeypatch):
+    monkeypatch.setattr("dataerai_hls4ml.provenance._pip_freeze", lambda: ["dataerai-hls4ml==test"])
     run = _run(dry_settings, workspace)
     cid = run.use_collection("hls4ml — partX")
     assert cid and run.settings.collection_id == cid
+    image = base64.b64encode(b"pngdata").decode()
     (workspace / "partX.ipynb").write_text(json.dumps(
-        {"cells": [{"cell_type": "code", "execution_count": 1, "source": ["x=1\n"], "outputs": []}],
+        {"cells": [{
+            "cell_type": "code",
+            "execution_count": 1,
+            "source": ["x=1\n"],
+            "outputs": [{
+                "output_type": "display_data",
+                "data": {"image/png": image, "text/plain": ["<Figure size 640x480>"]},
+                "metadata": {},
+            }],
+        }],
          "nbformat": 4, "nbformat_minor": 5, "metadata": {}}))
     run.preserve_notebook_record(workspace, "partX")
     kinds = {a.kind for a in run.artifacts.values()}
-    assert "notebook" in kinds and "log" in kinds
+    assert {"notebook", "log", "environment", "hardware_metrics", "figure"} <= kinds
     assert run.get("partX — notebook") and run.get("partX — execution log")
+    assert run.get("partX — environment") and run.get("partX — hardware metrics")
+    assert run.get("partX — figure 01")
+    assert (workspace / "partX.environment.json").exists()
+    assert (workspace / "partX.hardware.json").exists()
+    assert (workspace / ".dataerai_figures" / "partX" / "output-cell-000-00.png").exists()
+    assert {"execution-log", "environment", "hardware-metrics", "output-figure"} <= {
+        e.get("step") for e in run.edges
+    }
 
 
 def test_environment_capture(dry_settings, workspace):
