@@ -97,6 +97,30 @@ def cmd_capture(args) -> int:
     return 0
 
 
+def cmd_demo(args) -> int:
+    """Per-notebook capture across all parts: one collection per notebook, each with
+    its artifacts (those present on disk) plus a static notebook + execution-log
+    recording. Great for exercising the full integration against a backend."""
+    _apply_env(args)
+    from . import pipeline
+    from .provenance import capture, get_run
+
+    root = Path(args.root)
+    get_run("hls4ml-pipeline", kind="training", fresh=True, base_dir=root)
+    manifest = None
+    for stem in pipeline.NOTEBOOK_ARTIFACTS:
+        if not (root / f"{stem}.ipynb").exists():
+            print(f"skip (no notebook): {stem}", file=sys.stderr)
+            continue
+        print(f"▶ collection: hls4ml — {stem}")
+        manifest = capture(str(root), notebook=stem)
+    if manifest is None:
+        print(f"No notebooks found under {root}.", file=sys.stderr)
+        return 1
+    _summarize(manifest)
+    return 0
+
+
 def cmd_run(args) -> int:
     _apply_env(args)
     try:
@@ -162,6 +186,11 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("--kind", default="derivation", choices=["training", "derivation", "eval"])
     c.add_argument("--fresh", action="store_true", help="start a new lineage run")
     c.set_defaults(func=cmd_capture)
+
+    d = sub.add_parser("demo", parents=[common],
+                       help="per-notebook capture: one collection + recording per part")
+    d.add_argument("--root", default=".", help="repo root (default: .)")
+    d.set_defaults(func=cmd_demo)
 
     r = sub.add_parser("run", parents=[common],
                        help="papermill-execute notebooks under one lineage run")
